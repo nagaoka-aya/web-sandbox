@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>渦巻きドット進捗表示</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            background: #1a1a1a;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            font-family: Arial, sans-serif;
+        }
+
+        .container {
+            text-align: center;
+        }
+
+        .progress-text {
+            color: #fff;
+            font-size: 24px;
+            margin-bottom: 20px;
+        }
+
+        .controls {
+            margin-top: 20px;
+        }
+
+        button {
+            padding: 10px 20px;
+            margin: 0 10px;
+            background: #4a90e2;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+
+        button:hover {
+            background: #357abd;
+        }
+
+        .dot {
+            fill: #333;
+            transition: fill 0.3s ease;
+        }
+
+        .dot.active {
+            fill: #00ff88;
+            filter: drop-shadow(0 0 8px #00ff88);
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <div class="progress-text">
+            「HTMLのSVGでドットが渦巻き状に点灯していくことで、進捗を表現したいんだけど、そんなSVG作れますか？」
+            という依頼でClaude Sonnet4に作ってもらったHTML
+        </div>
+        <div class="progress-text">進捗: <span id="progress">0</span>%</div>
+
+        <svg width="400" height="400" viewBox="0 0 400 400">
+            <!-- 渦巻きドットを生成 -->
+            <g id="spiral-dots" transform="translate(200, 200)"></g>
+        </svg>
+
+        <div class="controls">
+            <button onclick="startProgress()">スタート</button>
+            <button onclick="resetProgress()">リセット</button>
+            <button onclick="togglePause()">一時停止/再開</button>
+        </div>
+    </div>
+
+    <script>
+        let dots = [];
+        let currentProgress = 0;
+        let animationId = null;
+        let isPaused = false;
+        let startTime = null;
+        const totalDots = 120;
+        const animationDuration = 5000; // 5秒
+
+        // 渦巻きの座標を計算
+        function createSpiralDots() {
+            const spiralGroup = document.getElementById('spiral-dots');
+            spiralGroup.innerHTML = ''; // クリア
+            dots = [];
+
+            for (let i = 0; i < totalDots; i++) {
+                const angle = i * 0.3; // 角度間隔
+                const radius = i * 1.2; // 半径の増加率
+
+                const x = Math.cos(angle) * radius;
+                const y = Math.sin(angle) * radius;
+
+                const dot = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+                dot.setAttribute('cx', x);
+                dot.setAttribute('cy', y);
+                dot.setAttribute('r', 4);
+                dot.setAttribute('class', 'dot');
+
+                spiralGroup.appendChild(dot);
+                dots.push(dot);
+            }
+        }
+
+        // 進捗を更新
+        function updateProgress(progress) {
+            const activeDots = Math.floor((progress / 100) * totalDots);
+
+            dots.forEach((dot, index) => {
+                if (index < activeDots) {
+                    dot.classList.add('active');
+                } else {
+                    dot.classList.remove('active');
+                }
+            });
+
+            document.getElementById('progress').textContent = Math.round(progress);
+        }
+
+        // アニメーション関数
+        function animate(timestamp) {
+            if (!startTime) startTime = timestamp;
+
+            if (!isPaused) {
+                const elapsed = timestamp - startTime;
+                const progress = Math.min((elapsed / animationDuration) * 100, 100);
+
+                updateProgress(progress);
+                currentProgress = progress;
+
+                if (progress < 100) {
+                    animationId = requestAnimationFrame(animate);
+                } else {
+                    // 完了時のエフェクト
+                    setTimeout(() => {
+                        dots.forEach(dot => {
+                            dot.style.fill = '#ff6b6b';
+                            dot.style.filter = 'drop-shadow(0 0 12px #ff6b6b)';
+                        });
+                    }, 500);
+                }
+            } else {
+                animationId = requestAnimationFrame(animate);
+            }
+        }
+
+        // 進捗開始
+        function startProgress() {
+            resetProgress();
+            startTime = null;
+            isPaused = false;
+            animationId = requestAnimationFrame(animate);
+        }
+
+        // 進捗リセット
+        function resetProgress() {
+            if (animationId) {
+                cancelAnimationFrame(animationId);
+                animationId = null;
+            }
+            startTime = null;
+            currentProgress = 0;
+            isPaused = false;
+            updateProgress(0);
+
+            // スタイルもリセット
+            dots.forEach(dot => {
+                dot.style.fill = '';
+                dot.style.filter = '';
+            });
+        }
+
+        // 一時停止/再開
+        function togglePause() {
+            if (animationId) {
+                isPaused = !isPaused;
+                if (!isPaused && startTime) {
+                    // 再開時は時間を調整
+                    const now = performance.now();
+                    startTime = now - (currentProgress / 100) * animationDuration;
+                }
+            }
+        }
+
+        // 初期化
+        createSpiralDots();
+    </script>
+</body>
+
+</html>

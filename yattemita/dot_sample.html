@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Spiral Dots Progress (SVG)</title>
+  <style>
+    :root {
+      --size: 360px;
+      /* SVGの表示サイズ */
+      --dot-size: 6;
+      /* ドット半径(px) */
+      --active: #4f46e5;
+      /* 有効ドット色 */
+      --inactive: #c7d2fe;
+      /* 無効ドット色 */
+      --bg: #0b1020;
+      /* 背景色（デモ用） */
+    }
+
+    html,
+    body {
+      height: 100%;
+    }
+
+    body {
+      margin: 0;
+      display: grid;
+      place-items: center;
+      background: var(--bg);
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Hiragino Kaku Gothic ProN", "Yu Gothic UI", "Meiryo", sans-serif;
+      color: #e5e7eb;
+    }
+
+    .card {
+      width: min(92vw, 760px);
+      background: #0f172a;
+      border: 1px solid #1f2a44;
+      border-radius: 18px;
+      padding: 18px 18px 10px;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, .35);
+    }
+
+    .row {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 14px;
+      align-items: center;
+    }
+
+    .vis {
+      display: grid;
+      place-items: center;
+    }
+
+    .vis svg {
+      width: var(--size);
+      height: var(--size);
+      display: block;
+    }
+
+    .controls {
+      display: grid;
+      gap: 10px;
+      margin-top: 10px;
+    }
+
+    .controls .grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+
+    .label {
+      font-size: 12px;
+      color: #9aa7bd;
+      display: flex;
+      justify-content: space-between;
+    }
+
+    input[type="range"] {
+      width: 100%;
+    }
+
+    .small {
+      font-size: 12px;
+      color: #9aa7bd;
+    }
+
+    .btn {
+      appearance: none;
+      border: 1px solid #243049;
+      background: #111a2d;
+      color: #e5e7eb;
+      padding: 10px 14px;
+      border-radius: 12px;
+      cursor: pointer;
+      font-weight: 600;
+    }
+
+    .btn:active {
+      transform: translateY(1px);
+    }
+
+    /* ドットの基本スタイル */
+    .dot {
+      fill: var(--inactive);
+      opacity: .35;
+      transition: opacity .25s ease, fill .25s ease;
+    }
+
+    .dot.active {
+      fill: var(--active);
+      opacity: 1;
+    }
+
+    /* デモ用：自動アニメーション（任意） */
+    .auto-on .progress-ring {
+      filter: drop-shadow(0 0 10px rgba(79, 70, 229, .45));
+    }
+  </style>
+</head>
+
+<body>
+  <div class="card">
+    「HTMLのSVGでドットが渦巻き状に点灯していくことで、進捗を表現したいんだけど、そんなSVG作れますか？」
+    という依頼でGhat GPT5に作ってもらったHTML
+  </div>
+  <main class="card">
+    <div class="row">
+      <div class="vis">
+        <!-- 役割: 進捗バー -->
+        <svg id="spiral" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"
+          viewBox="-180 -180 360 360" class="progress-ring" tabindex="0" aria-label="Spiral progress">
+          <!-- ドットはJSで生成 -->
+          <g id="dots"></g>
+        </svg>
+      </div>
+      <div class="controls">
+        <div class="label"><span>進捗</span><span id="pct-label">0%</span></div>
+        <input id="range" type="range" min="0" max="100" step="1" value="0" />
+
+        <div class="grid">
+          <label class="label">ドット数 <input id="dotCount" type="number" min="12" max="600" step="6" value="150"
+              style="width:90px; background:#0b1223; color:#e5e7eb; border:1px solid #26324b; border-radius:8px; padding:6px 8px;" /></label>
+          <label class="label">渦のターン数 <input id="turns" type="number" min="1" max="12" step="0.5" value="4"
+              style="width:90px; background:#0b1223; color:#e5e7eb; border:1px solid #26324b; border-radius:8px; padding:6px 8px;" /></label>
+        </div>
+        <div class="grid">
+          <button class="btn" id="demo">デモ再生</button>
+          <button class="btn" id="reset">リセット</button>
+        </div>
+        <p class="small">スライダー or <kbd>←</kbd>/<kbd>→</kbd> で進捗を操作できます。数値を変えると渦を再生成します。</p>
+      </div>
+    </div>
+  </main>
+
+  <script>
+    /**
+     * 渦巻き上にドットを並べる（SVG生成）
+     * @param {SVGSVGElement} svg
+     * @param {object} opts
+     */
+    function buildSpiral(svg, opts = {}) {
+      const {
+        dotCount = 150,   // ドット総数
+        turns = 4,        // 何回転させるか
+        startR = 10,      // 中心からの開始半径
+        endR = 160,       // 外周の半径
+        dotRadius = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--dot-size')),
+        clockwise = true,
+      } = opts;
+
+      const g = svg.querySelector('#dots');
+      g.innerHTML = '';
+
+      // アルキメデス螺旋: r = a + b*theta
+      const thetaTotal = turns * Math.PI * 2;
+      const a = startR; // 基本半径
+      const b = (endR - startR) / thetaTotal; // 半径の増加率
+
+      for (let i = 0; i < dotCount; i++) {
+        const t = dotCount === 1 ? 0 : i / (dotCount - 1); // [0,1]
+        const theta = t * thetaTotal * (clockwise ? 1 : -1);
+        const r = a + b * Math.abs(theta);
+        const x = r * Math.cos(theta);
+        const y = r * Math.sin(theta);
+
+        const c = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+        c.setAttribute('class', 'dot');
+        c.setAttribute('cx', x.toFixed(2));
+        c.setAttribute('cy', y.toFixed(2));
+        c.setAttribute('r', dotRadius);
+        // 任意：インデックスを保持
+        c.dataset.index = i;
+        g.appendChild(c);
+      }
+    }
+
+    /** 進捗に応じてドットのactive状態を更新 */
+    function setProgress(svg, percent) {
+      const p = Math.max(0, Math.min(100, percent));
+      const dots = svg.querySelectorAll('.dot');
+      const activeCount = Math.round(dots.length * (p / 100));
+
+      dots.forEach((d, i) => {
+        if (i < activeCount) d.classList.add('active');
+        else d.classList.remove('active');
+      });
+
+      svg.setAttribute('aria-valuenow', String(p));
+      document.getElementById('pct-label').textContent = p + '%';
+    }
+
+    // --- 初期化 ---
+    const svg = document.getElementById('spiral');
+    const range = document.getElementById('range');
+    const inputDots = document.getElementById('dotCount');
+    const inputTurns = document.getElementById('turns');
+    const btnDemo = document.getElementById('demo');
+    const btnReset = document.getElementById('reset');
+
+    function regenerate() {
+      const dotCount = Math.max(12, Math.min(600, parseInt(inputDots.value || '150', 10)));
+      const turns = Math.max(1, Math.min(12, parseFloat(inputTurns.value || '4')));
+      buildSpiral(svg, { dotCount, turns });
+      setProgress(svg, parseInt(range.value, 10));
+    }
+
+    regenerate();
+
+    // 進捗スライダー
+    range.addEventListener('input', (e) => {
+      setProgress(svg, parseInt(e.target.value, 10));
+    });
+
+    // ドット数・ターン数の変更で再生成
+    inputDots.addEventListener('change', regenerate);
+    inputTurns.addEventListener('change', regenerate);
+
+    // キーボードで微調整
+    svg.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowRight') { range.value = Math.min(100, parseInt(range.value, 10) + 1); }
+      if (e.key === 'ArrowLeft') { range.value = Math.max(0, parseInt(range.value, 10) - 1); }
+      setProgress(svg, parseInt(range.value, 10));
+    });
+
+    // デモ再生（0→100%へ自動アニメ）
+    let demoId = null;
+    btnDemo.addEventListener('click', () => {
+      if (demoId) { cancelAnimationFrame(demoId); demoId = null; document.body.classList.remove('auto-on'); return; }
+      document.body.classList.add('auto-on');
+      const start = performance.now();
+      const dur = 2600; // ms
+      const from = parseInt(range.value, 10);
+      const to = 100;
+      const delta = to - from;
+      const ease = (t) => t < .5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2; // easeInOutQuad
+      const tick = (now) => {
+        const t = Math.min(1, (now - start) / dur);
+        const v = Math.round(from + delta * ease(t));
+        range.value = String(v);
+        setProgress(svg, v);
+        if (t < 1) demoId = requestAnimationFrame(tick); else { demoId = null; document.body.classList.remove('auto-on'); }
+      };
+      demoId = requestAnimationFrame(tick);
+    });
+
+    // リセット
+    btnReset.addEventListener('click', () => {
+      if (demoId) { cancelAnimationFrame(demoId); demoId = null; }
+      document.body.classList.remove('auto-on');
+      range.value = '0';
+      regenerate();
+    });
+
+    // 使い方（外部から）
+    // window.setSpiralProgress = (pct) => setProgress(svg, pct);
+  </script>
+</body>
+
+</html>

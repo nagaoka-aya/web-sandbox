@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>正方形ドット回転進捗表示</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            background: #1a1a1a;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            font-family: Arial, sans-serif;
+        }
+
+        .container {
+            text-align: center;
+        }
+
+        .progress-text {
+            color: #fff;
+            font-size: 24px;
+            margin-bottom: 20px;
+        }
+
+        .controls {
+            margin-top: 20px;
+        }
+
+        button {
+            padding: 10px 20px;
+            margin: 0 10px;
+            background: #4a90e2;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+
+        button:hover {
+            background: #357abd;
+        }
+
+        .dot {
+            fill: #333;
+            transition: fill 0.2s ease, transform 0.3s ease;
+            transform-origin: center;
+        }
+
+        .dot.active {
+            fill: #00ff88;
+            filter: drop-shadow(0 0 6px #00ff88);
+            transform: scale(1.3);
+        }
+
+        .dot.completed {
+            fill: #ff6b6b;
+            filter: drop-shadow(0 0 8px #ff6b6b);
+            transform: scale(1.1);
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <div class="progress-text">
+            「渦ではなく、四角いドットが正方形に並んでいて、中心から回りながら点灯していくものは作成できますか」
+            という依頼でClaude Sonnet4に作ってもらったHTML
+        </div>
+        <div class="progress-text">進捗: <span id="progress">0</span>%</div>
+
+        <svg width="400" height="400" viewBox="0 0 400 400">
+            <!-- 正方形ドットを生成 -->
+            <g id="square-dots" transform="translate(200, 200)"></g>
+        </svg>
+
+        <div class="controls">
+            <button onclick="startProgress()">スタート</button>
+            <button onclick="resetProgress()">リセット</button>
+            <button onclick="togglePause()">一時停止/再開</button>
+        </div>
+    </div>
+
+    <script>
+        let dots = [];
+        let dotOrder = []; // 点灯順序を保存
+        let currentProgress = 0;
+        let animationId = null;
+        let isPaused = false;
+        let startTime = null;
+        const gridSize = 15; // 15x15のグリッド
+        const dotSize = 6;
+        const dotSpacing = 20;
+        const animationDuration = 6000; // 6秒
+
+        // 螺旋状の点灯順序を計算（中心から時計回りに外側へ）
+        function calculateLightingOrder() {
+            const center = Math.floor(gridSize / 2);
+            const visited = Array(gridSize).fill(null).map(() => Array(gridSize).fill(false));
+            const order = [];
+
+            let x = center;
+            let y = center;
+
+            // 方向: 右、下、左、上 (時計回り)
+            const directions = [
+                [0, 1],   // 右
+                [1, 0],   // 下
+                [0, -1],  // 左
+                [-1, 0]   // 上
+            ];
+
+            let dirIndex = 0;  // 現在の方向
+            let steps = 1;     // 現在の方向で進む歩数
+
+            // 中心点を追加
+            order.push(y * gridSize + x);
+            visited[y][x] = true;
+
+            while (order.length < gridSize * gridSize) {
+                // 現在の方向で2回（同じ歩数で2方向）進む
+                for (let i = 0; i < 2; i++) {
+                    const [dy, dx] = directions[dirIndex];
+
+                    // 指定された歩数だけ進む
+                    for (let step = 0; step < steps; step++) {
+                        x += dx;
+                        y += dy;
+
+                        // 範囲内かつ未訪問の場合のみ追加
+                        if (x >= 0 && x < gridSize && y >= 0 && y < gridSize && !visited[y][x]) {
+                            order.push(y * gridSize + x);
+                            visited[y][x] = true;
+                        }
+                    }
+
+                    dirIndex = (dirIndex + 1) % 4;  // 次の方向へ
+
+                    // 全てのドットを処理したら終了
+                    if (order.length >= gridSize * gridSize) break;
+                }
+
+                steps++;  // 次の周回では歩数を増やす
+            }
+
+            return order;
+        }
+
+        // 正方形ドットグリッドを生成
+        function createSquareDots() {
+            const dotsGroup = document.getElementById('square-dots');
+            dotsGroup.innerHTML = '';
+            dots = [];
+
+            const startX = -(gridSize - 1) * dotSpacing / 2;
+            const startY = -(gridSize - 1) * dotSpacing / 2;
+
+            for (let row = 0; row < gridSize; row++) {
+                for (let col = 0; col < gridSize; col++) {
+                    const x = startX + col * dotSpacing;
+                    const y = startY + row * dotSpacing;
+
+                    const dot = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+                    dot.setAttribute('x', x - dotSize / 2);
+                    dot.setAttribute('y', y - dotSize / 2);
+                    dot.setAttribute('width', dotSize);
+                    dot.setAttribute('height', dotSize);
+                    dot.setAttribute('rx', 1); // 少し角を丸く
+                    dot.setAttribute('class', 'dot');
+
+                    dotsGroup.appendChild(dot);
+                    dots.push(dot);
+                }
+            }
+
+            // 点灯順序を計算
+            dotOrder = calculateLightingOrder();
+        }
+
+        // 進捗を更新
+        function updateProgress(progress) {
+            const activeDots = Math.floor((progress / 100) * dots.length);
+
+            // 全てのドットをリセット
+            dots.forEach(dot => {
+                dot.classList.remove('active', 'completed');
+            });
+
+            // 順序に従って点灯
+            for (let i = 0; i < activeDots; i++) {
+                const dotIndex = dotOrder[i];
+                dots[dotIndex].classList.add('active');
+            }
+
+            document.getElementById('progress').textContent = Math.round(progress);
+        }
+
+        // アニメーション関数
+        function animate(timestamp) {
+            if (!startTime) startTime = timestamp;
+
+            if (!isPaused) {
+                const elapsed = timestamp - startTime;
+                const progress = Math.min((elapsed / animationDuration) * 100, 100);
+
+                updateProgress(progress);
+                currentProgress = progress;
+
+                if (progress < 100) {
+                    animationId = requestAnimationFrame(animate);
+                } else {
+                    // 完了時のエフェクト
+                    setTimeout(() => {
+                        dots.forEach(dot => {
+                            dot.classList.remove('active');
+                            dot.classList.add('completed');
+                        });
+                    }, 300);
+                }
+            } else {
+                animationId = requestAnimationFrame(animate);
+            }
+        }
+
+        // 進捗開始
+        function startProgress() {
+            resetProgress();
+            startTime = null;
+            isPaused = false;
+            animationId = requestAnimationFrame(animate);
+        }
+
+        // 進捗リセット
+        function resetProgress() {
+            if (animationId) {
+                cancelAnimationFrame(animationId);
+                animationId = null;
+            }
+            startTime = null;
+            currentProgress = 0;
+            isPaused = false;
+            updateProgress(0);
+
+            // 全てのクラスをリセット
+            dots.forEach(dot => {
+                dot.classList.remove('active', 'completed');
+            });
+        }
+
+        // 一時停止/再開
+        function togglePause() {
+            if (animationId) {
+                isPaused = !isPaused;
+                if (!isPaused && startTime) {
+                    // 再開時は時間を調整
+                    const now = performance.now();
+                    startTime = now - (currentProgress / 100) * animationDuration;
+                }
+            }
+        }
+
+        // 初期化
+        createSquareDots();
+    </script>
+</body>
+
+</html>

@@ -1,0 +1,304 @@
+<!doctype html>
+<html lang="ja">
+
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Square Spiral Grid Progress</title>
+  <style>
+    :root {
+      --size: 360px;
+      /* 表示領域 */
+      --cell-size: 18px;
+      /* 正方セルのサイズ */
+      --gap: 6px;
+      /* セル間隔 */
+      --active: #06b6d4;
+      /* 点灯色 */
+      --inactive: #1f2937;
+      /* 消灯色 */
+      --bg: #0b1223;
+    }
+
+    html,
+    body {
+      height: 100%;
+      margin: 0;
+      font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Hiragino Kaku Gothic ProN', 'Yu Gothic', Meiryo, sans-serif;
+      background: var(--bg);
+      color: #e6eef8
+    }
+
+    .wrap {
+      max-width: 920px;
+      margin: 28px auto;
+      padding: 18px;
+      background: #071025;
+      border-radius: 12px;
+      box-shadow: 0 12px 30px rgba(0, 0, 0, .6)
+    }
+
+    .vis {
+      display: grid;
+      place-items: center;
+      padding: 12px
+    }
+
+    svg.grid {
+      width: var(--size);
+      height: var(--size);
+      display: block
+    }
+
+    rect.cell {
+      fill: var(--inactive);
+      rx: 3;
+      transition: fill .18s, transform .15s
+    }
+
+    rect.cell.active {
+      fill: var(--active);
+      transform: scale(1.02)
+    }
+
+    .controls {
+      padding: 8px;
+      display: grid;
+      gap: 10px
+    }
+
+    .row {
+      display: flex;
+      gap: 10px;
+      align-items: center
+    }
+
+    label {
+      font-size: 13px;
+      color: #a8b7c8
+    }
+
+    input[type=range] {
+      width: 240px
+    }
+
+    input[type=number] {
+      width: 84px;
+      padding: 6px;
+      border-radius: 8px;
+      border: 1px solid #113146;
+      background: #071428;
+      color: #e6eef8
+    }
+
+    .btn {
+      background: #072842;
+      border: 1px solid #114a66;
+      color: #dff7fb;
+      padding: 8px 12px;
+      border-radius: 10px;
+      cursor: pointer;
+      font-weight: 600
+    }
+
+    .small {
+      font-size: 12px;
+      color: #8ea3b8
+    }
+  </style>
+</head>
+
+<body>
+  <div class="wrap">
+    「渦ではなく、四角いドットが正方形に並んでいて、中心から回りながら点灯していくものは作成できますか」
+    という依頼でGhat GPT5に作ってもらったHTML
+  </div>
+  <div class="wrap">
+    <h2 style="margin:0 0 12px 0">Square Spiral Grid — 中心から回りながら点灯する進捗</h2>
+
+    <div class="vis">
+      <svg id="gridSvg" class="grid" viewBox="0 0 360 360" role="progressbar" aria-label="Grid spiral progress"
+        tabindex="0" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"></svg>
+    </div>
+
+    <div class="controls">
+      <div class="row" style="justify-content:space-between;align-items:center;">
+        <div>
+          <label>進捗 <span id="pct">0%</span></label>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center">
+          <button id="demo" class="btn">デモ</button>
+          <button id="reset" class="btn">リセット</button>
+        </div>
+      </div>
+
+      <div class="row">
+        <label>進捗</label>
+        <input id="range" type="range" min="0" max="100" step="1" value="0">
+      </div>
+
+      <div class="row">
+        <label>グリッド（NxN）</label>
+        <input id="gridN" type="number" min="3" max="51" step="1" value="11">
+        <label>セルサイズ(px)</label>
+        <input id="cellSize" type="number" min="6" max="48" step="1" value="18">
+        <label>間隔(px)</label>
+        <input id="gap" type="number" min="0" max="24" step="1" value="6">
+      </div>
+
+      <div class="row small">
+        <div>キーボード：<code>←</code>/<code>→</code>で進捗操作</div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // SVGグリッドを生成し、中心から外側へ「スパイラル（渦巻き）状」に点灯する順番で並べる
+
+    const svg = document.getElementById('gridSvg');
+    const range = document.getElementById('range');
+    const pct = document.getElementById('pct');
+    const gridNInput = document.getElementById('gridN');
+    const cellSizeInput = document.getElementById('cellSize');
+    const gapInput = document.getElementById('gap');
+    const btnDemo = document.getElementById('demo');
+    const btnReset = document.getElementById('reset');
+
+    let cells = [];       // SVG rect 要素の配列（順序はスパイラル順）
+    let currentDemo = null;
+
+    function buildGrid(n, cellSize, gap) {
+      cells = [];
+      svg.innerHTML = '';
+      const totalSize = n * cellSize + (n - 1) * gap;
+      // viewBox と配置のために左上を (0,0) にする
+      svg.setAttribute('viewBox', `0 0 ${totalSize} ${totalSize}`);
+
+      // まず座標のグリッドを作る
+      const coords = [];
+      for (let r = 0; r < n; r++) {
+        for (let c = 0; c < n; c++) {
+          const x = c * (cellSize + gap);
+          const y = r * (cellSize + gap);
+          coords.push({ r, c, x, y });
+        }
+      }
+
+      // 中心から外周へ向かうスパイラル順を作る（中心を起点）
+      // アルゴリズム：格子上で中心から右→上→左→下と移動し、ステップ長を増やす
+      function spiralOrderIndices(n) {
+        const cx = Math.floor((n - 1) / 2);
+        const cy = Math.floor((n - 1) / 2);
+        const visited = Array.from({ length: n }, () => Array(n).fill(false));
+        const order = [];
+        let r = cx, c = cy;
+        order.push({ r, c }); visited[r][c] = true;
+        let step = 1;
+        // directions: right, up, left, down (中心から外側に螺旋するための順序)
+        const dirs = [[1, 0], [0, -1], [-1, 0], [0, 1]]; // note: coordinates are (col,row) style; we'll adapt below
+        // We'll perform until we've added all cells
+        while (order.length < n * n) {
+          for (let d = 0; d < 4 && order.length < n * n; d++) {
+            const [dc, dr] = dirs[d];
+            const steps = Math.ceil(step);
+            for (let s = 0; s < steps && order.length < n * n; s++) {
+              c += dc; r += dr;
+              if (r >= 0 && r < n && c >= 0 && c < n && !visited[r][c]) {
+                order.push({ r, c }); visited[r][c] = true;
+              }
+            }
+            // increase step after moving horizontally or vertically twice
+            if (d % 2 === 1) step += 1;
+          }
+        }
+        return order;
+      }
+
+      const spiral = spiralOrderIndices(n);
+
+      // spiral は {r,c} の配列。これをセル要素に変換
+      for (let i = 0; i < spiral.length; i++) {
+        const { r, c } = spiral[i];
+        const x = c * (cellSize + gap);
+        const y = r * (cellSize + gap);
+        const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+        rect.setAttribute('x', x);
+        rect.setAttribute('y', y);
+        rect.setAttribute('width', cellSize);
+        rect.setAttribute('height', cellSize);
+        rect.setAttribute('class', 'cell');
+        rect.dataset.index = i;
+        svg.appendChild(rect);
+        cells.push(rect);
+      }
+    }
+
+    function setProgress(percentage) {
+      const p = Math.max(0, Math.min(100, Math.round(percentage)));
+      const activeCount = Math.round((p / 100) * cells.length);
+      cells.forEach((rect, i) => {
+        if (i < activeCount) rect.classList.add('active');
+        else rect.classList.remove('active');
+      });
+      svg.setAttribute('aria-valuenow', String(p));
+      pct.textContent = p + '%';
+    }
+
+    function regenerate() {
+      const n = Math.max(3, Math.min(51, parseInt(gridNInput.value) || 11));
+      const cellSize = Math.max(4, Math.min(48, parseInt(cellSizeInput.value) || 18));
+      const gap = Math.max(0, Math.min(24, parseInt(gapInput.value) || 6));
+      // update css vars for display size while keeping outer appearance
+      const total = n * cellSize + (n - 1) * gap;
+      // scale to fit fixed CSS size (var --size), use viewBox to manage sizing
+      document.documentElement.style.setProperty('--size', Math.min(480, total) + 'px');
+      buildGrid(n, cellSize, gap);
+      setProgress(parseInt(range.value, 10));
+    }
+
+    // 初期生成
+    regenerate();
+
+    // イベント
+    range.addEventListener('input', () => setProgress(parseInt(range.value, 10)));
+    gridNInput.addEventListener('change', regenerate);
+    cellSizeInput.addEventListener('change', regenerate);
+    gapInput.addEventListener('change', regenerate);
+
+    // キーボード操作
+    svg.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowRight') { range.value = Math.min(100, parseInt(range.value, 10) + 1); setProgress(parseInt(range.value, 10)); }
+      if (e.key === 'ArrowLeft') { range.value = Math.max(0, parseInt(range.value, 10) - 1); setProgress(parseInt(range.value, 10)); }
+    });
+
+    // デモ：0→100へのアニメ
+    let animHandle = null;
+    btnDemo.addEventListener('click', () => {
+      if (animHandle) { cancelAnimationFrame(animHandle); animHandle = null; btnDemo.textContent = 'デモ'; return; }
+      btnDemo.textContent = '停止';
+      const start = performance.now();
+      const duration = 2500; // ms
+      const from = parseInt(range.value, 10);
+      const to = 100;
+      function easeInOut(t) { return t < .5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2; }
+      function frame(now) {
+        const t = Math.min(1, (now - start) / duration);
+        const v = Math.round(from + (to - from) * easeInOut(t));
+        range.value = v; setProgress(v);
+        if (t < 1) animHandle = requestAnimationFrame(frame); else { animHandle = null; btnDemo.textContent = 'デモ'; }
+      }
+      animHandle = requestAnimationFrame(frame);
+    });
+
+    btnReset.addEventListener('click', () => {
+      if (animHandle) { cancelAnimationFrame(animHandle); animHandle = null; btnDemo.textContent = 'デモ'; }
+      range.value = 0; regenerate();
+    });
+
+    // 外部から呼び出せるAPI
+    window.setSquareSpiralProgress = (p) => { range.value = String(Math.round(p)); setProgress(parseInt(range.value, 10)); };
+
+  </script>
+</body>
+
+</html>
